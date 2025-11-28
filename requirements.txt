@@ -1,0 +1,17 @@
+# Controller Node Dependencies
+
+# Async support
+asyncio-mqtt>=0.16.0
+
+# Serial communication
+pyserial>=3.5
+pyserial-asyncio>=0.6
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# TUI display
+rich>=13.0.0
+
+# Type checking
+typing-extensions>=4.0.0
