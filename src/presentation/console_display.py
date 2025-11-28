@@ -48,14 +48,14 @@ class ConsoleDisplay(IDisplay):
             screen=True,
         )
         self._live.start()
-        logger.info("Console display started")
+        logger.info("콘솔 디스플레이 시작됨")
 
     def stop(self) -> None:
         """Stop the display."""
         if self._live:
             self._live.stop()
             self._live = None
-        logger.info("Console display stopped")
+        logger.info("콘솔 디스플레이 중지됨")
 
     def _refresh(self) -> None:
         """Refresh the display."""
@@ -80,7 +80,7 @@ class ConsoleDisplay(IDisplay):
         # Header
         layout["header"].update(
             Panel(
-                Text("Controller Node", style="bold white", justify="center"),
+                Text("컨트롤러 노드", style="bold white", justify="center"),
                 style="blue",
             )
         )
@@ -99,12 +99,12 @@ class ConsoleDisplay(IDisplay):
     def _generate_status_panel(self) -> Panel:
         """Generate status panel."""
         table = Table(show_header=False, box=None, padding=(0, 1))
-        table.add_column("Key", style="cyan")
-        table.add_column("Value")
+        table.add_column("항목", style="cyan")
+        table.add_column("값")
 
         if self._status:
             # Device ID
-            table.add_row("Device ID", str(self._status.device_id))
+            table.add_row("장치 ID", str(self._status.device_id))
 
             # Master connection
             master_style = (
@@ -112,7 +112,7 @@ class ConsoleDisplay(IDisplay):
                 else "red"
             )
             table.add_row(
-                "Master Node",
+                "마스터 노드",
                 Text(self._status.master_connection.name, style=master_style),
             )
 
@@ -122,25 +122,25 @@ class ConsoleDisplay(IDisplay):
                 else "yellow"
             )
             table.add_row(
-                "Serial Device",
+                "시리얼 장치",
                 Text(self._status.serial_connection.name, style=serial_style),
             )
 
             table.add_row("", "")
 
             # Statistics
-            table.add_row("Commands Executed", str(self._status.commands_executed))
-            table.add_row("Errors", str(self._status.errors_count))
+            table.add_row("실행된 명령", str(self._status.commands_executed))
+            table.add_row("오류", str(self._status.errors_count))
 
             # Last signal time
             if self._status.last_signal_received:
                 time_str = self._status.last_signal_received.strftime("%H:%M:%S")
-                table.add_row("Last Signal", time_str)
+                table.add_row("마지막 신호", time_str)
 
         else:
-            table.add_row("Status", "Initializing...")
+            table.add_row("상태", "초기화 중...")
 
-        return Panel(table, title="Status", border_style="blue")
+        return Panel(table, title="상태", border_style="blue")
 
     def _generate_main_panel(self) -> Panel:
         """Generate main panel with signal and command info."""
@@ -152,13 +152,13 @@ class ConsoleDisplay(IDisplay):
 
         # Signal info
         signal_table = Table(show_header=True, box=None, padding=(0, 1))
-        signal_table.add_column("Field", style="cyan")
-        signal_table.add_column("Value")
+        signal_table.add_column("항목", style="cyan")
+        signal_table.add_column("값")
 
         if self._last_signal:
             signal_table.add_row(
-                "Target Zones",
-                ", ".join(map(str, self._last_signal.target_zones)) or "None",
+                "대상 구역",
+                ", ".join(map(str, self._last_signal.target_zones)) or "없음",
             )
             action_style = (
                 "green" if self._last_signal.action.value == "inflate"
@@ -166,23 +166,23 @@ class ConsoleDisplay(IDisplay):
                 else "dim"
             )
             signal_table.add_row(
-                "Action",
+                "동작",
                 Text(self._last_signal.action.value, style=action_style),
             )
-            signal_table.add_row("Intensity", f"{self._last_signal.intensity}%")
+            signal_table.add_row("강도", f"{self._last_signal.intensity}%")
         else:
-            signal_table.add_row("", "Waiting for signal...")
+            signal_table.add_row("", "신호 대기 중...")
 
         layout["signal"].update(
-            Panel(signal_table, title="Last Signal", border_style="cyan")
+            Panel(signal_table, title="마지막 신호", border_style="cyan")
         )
 
         # Commands info
         cmd_table = Table(show_header=True, box=None, padding=(0, 1))
-        cmd_table.add_column("Zone", style="cyan", width=8)
-        cmd_table.add_column("Action", width=10)
-        cmd_table.add_column("Intensity", width=10)
-        cmd_table.add_column("Time", width=10)
+        cmd_table.add_column("구역", style="cyan", width=8)
+        cmd_table.add_column("동작", width=10)
+        cmd_table.add_column("강도", width=10)
+        cmd_table.add_column("시간", width=10)
 
         if self._last_commands:
             for cmd in self._last_commands[-5:]:  # Show last 5 commands
@@ -198,13 +198,13 @@ class ConsoleDisplay(IDisplay):
                     cmd.timestamp.strftime("%H:%M:%S"),
                 )
         else:
-            cmd_table.add_row("", "No commands yet", "", "")
+            cmd_table.add_row("", "명령 없음", "", "")
 
         layout["commands"].update(
-            Panel(cmd_table, title="Recent Commands", border_style="green")
+            Panel(cmd_table, title="최근 명령", border_style="green")
         )
 
-        return Panel(layout, title="Control", border_style="blue")
+        return Panel(layout, title="제어", border_style="blue")
 
     def _generate_log_panel(self) -> Panel:
         """Generate log panel."""
@@ -223,9 +223,9 @@ class ConsoleDisplay(IDisplay):
             log_text.append(f"{message}\n")
 
         if self._error_message:
-            log_text.append(f"\nERROR: {self._error_message}", style="bold red")
+            log_text.append(f"\n오류: {self._error_message}", style="bold red")
 
-        return Panel(log_text, title="Logs", border_style="dim")
+        return Panel(log_text, title="로그", border_style="dim")
 
     def update_status(self, status: SystemStatus) -> None:
         """Update system status display.
@@ -244,8 +244,8 @@ class ConsoleDisplay(IDisplay):
         """
         self._last_signal = signal
         self._add_log(
-            f"Signal received: zones={signal.target_zones}, "
-            f"action={signal.action.value}, intensity={signal.intensity}%",
+            f"신호 수신: 구역={signal.target_zones}, "
+            f"동작={signal.action.value}, 강도={signal.intensity}%",
             "info",
         )
         self._refresh()
@@ -257,7 +257,7 @@ class ConsoleDisplay(IDisplay):
             commands: List of executed commands.
         """
         self._last_commands = commands
-        self._add_log(f"Executed {len(commands)} command(s)", "info")
+        self._add_log(f"{len(commands)}개 명령 실행됨", "info")
         self._refresh()
 
     def log_message(self, message: str, level: str = "info") -> None:
