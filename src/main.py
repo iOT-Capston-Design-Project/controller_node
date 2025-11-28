@@ -15,7 +15,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("controller_node.log"),
-        logging.StreamHandler(sys.stdout),
     ],
 )
 
@@ -49,8 +48,19 @@ class Application:
         self._running = True
         logger.info("Controller Node started successfully")
 
+        # Start status update loop
+        asyncio.create_task(self._status_update_loop())
+
         # Wait for shutdown signal
         await self._shutdown_event.wait()
+
+    async def _status_update_loop(self) -> None:
+        """Periodically update display with current status."""
+        while self._running and not self._shutdown_event.is_set():
+            if self._container:
+                status = self._container.service_facade.get_system_status()
+                self._container.display.update_status(status)
+            await asyncio.sleep(0.5)  # Update every 500ms
 
     async def stop(self) -> None:
         """Stop the application."""
