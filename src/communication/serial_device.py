@@ -26,16 +26,16 @@ class ArduinoProtocol(IDeviceProtocol):
     Commands:
     - S: Start/Run pattern
     - P: Pause/Stop pattern
-    - Z<zone>:<action>:<intensity>: Zone control command
+    - Z<zone>:<action>: Zone control command (on/off only)
     """
 
     def encode_command(self, command: DeviceCommand) -> bytes:
         """Encode a command to bytes for serial transmission.
 
-        Format: "Z<zone>:<action>:<intensity>\n"
-        Example: "Z1:inflate:50\n"
+        Format: "Z<zone>:<action>\n"
+        Example: "Z1:inflate\n"
         """
-        return f"Z{command.zone.value}:{command.action.value}:{command.intensity}\n".encode()
+        return f"Z{command.zone.value}:{command.action.value}\n".encode()
 
     def decode_response(self, data: bytes) -> dict:
         """Decode response from device.
@@ -222,11 +222,11 @@ class SerialDevice(ISerialDevice):
             try:
                 response = self._response_queue.get(timeout=2.0)
                 if response.get("success"):
-                    # Update zone state
+                    # Update zone state (on/off only)
                     if command.action == ControlAction.INFLATE:
-                        self._zone_states[command.zone.value] = command.intensity
+                        self._zone_states[command.zone.value] = 1  # on
                     elif command.action == ControlAction.DEFLATE:
-                        self._zone_states[command.zone.value] = 0
+                        self._zone_states[command.zone.value] = 0  # off
 
                     logger.info(f"Command executed: {command}")
                     self._last_command_success = True
@@ -239,9 +239,9 @@ class SerialDevice(ISerialDevice):
             except Empty:
                 # No response, assume success for now (Arduino may not send OK)
                 if command.action == ControlAction.INFLATE:
-                    self._zone_states[command.zone.value] = command.intensity
+                    self._zone_states[command.zone.value] = 1  # on
                 elif command.action == ControlAction.DEFLATE:
-                    self._zone_states[command.zone.value] = 0
+                    self._zone_states[command.zone.value] = 0  # off
 
                 logger.info(f"Command sent (no ack): {command}")
                 self._last_command_success = True

@@ -4,10 +4,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
+from typing_extensions import deprecated
+
 from .enums import ControlAction, ConnectionState, DeviceZone, PostureType
 
 
-@dataclass
+@dataclass @deprecated
 class ControlSignal:
     """Control signal received from master node.
 
@@ -41,16 +43,15 @@ class DeviceCommand:
     """Command to be sent to the physical device via serial.
 
     This is the internal representation that will be converted
-    to the appropriate serial protocol.
+    to the appropriate serial protocol. 압력은 on/off만 지원.
     """
 
     zone: DeviceZone
-    action: ControlAction
-    intensity: int  # 0-100
+    action: ControlAction  # inflate = on, deflate = off
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __str__(self) -> str:
-        return f"Zone {self.zone.value}: {self.action.value} at {self.intensity}%"
+        return f"Zone {self.zone.value}: {self.action.value}"
 
 
 @dataclass

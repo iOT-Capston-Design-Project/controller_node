@@ -55,7 +55,6 @@ class ControlService(IControlService):
             command = DeviceCommand(
                 zone=zone,
                 action=signal.action,
-                intensity=signal.intensity,
                 timestamp=timestamp,
             )
 

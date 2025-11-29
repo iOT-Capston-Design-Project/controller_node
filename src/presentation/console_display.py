@@ -225,7 +225,6 @@ class ConsoleDisplay(IDisplay):
         cmd_table = Table(show_header=True, box=None, padding=(0, 1))
         cmd_table.add_column("구역", style="cyan", width=8)
         cmd_table.add_column("동작", width=10)
-        cmd_table.add_column("강도", width=10)
         cmd_table.add_column("시간", width=10)
 
         if self._last_commands:
@@ -238,11 +237,10 @@ class ConsoleDisplay(IDisplay):
                 cmd_table.add_row(
                     str(cmd.zone.value),
                     Text(cmd.action.value, style=action_style),
-                    f"{cmd.intensity}%",
                     cmd.timestamp.strftime("%H:%M:%S"),
                 )
         else:
-            cmd_table.add_row("", "명령 없음", "", "")
+            cmd_table.add_row("", "명령 없음", "")
 
         layout["commands"].update(
             Panel(cmd_table, title="최근 명령", border_style="green")

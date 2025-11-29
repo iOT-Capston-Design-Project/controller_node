@@ -43,5 +43,5 @@ class PostureType(Enum):
     PRONE = "prone"  # 복와위 (엎드린 자세)
     LEFT_LATERAL = "left_lateral"  # 좌측와위 (왼쪽으로 누운 자세)
     RIGHT_LATERAL = "right_lateral"  # 우측와위 (오른쪽으로 누운 자세)
-    SITTING = "sitting"  # 좌위 (앉은 자세)
+    SITTING = "sitting"  # 위 (앉은 자세)
     UNKNOWN = "unknown"  # 알 수 없음
