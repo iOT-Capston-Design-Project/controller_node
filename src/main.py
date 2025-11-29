@@ -1,13 +1,25 @@
 """Main entry point for Controller Node application."""
 
+import argparse
 import asyncio
 import logging
 import signal
 import sys
 from typing import Optional
 
-from .container import create_container, Container
+from .container import create_container, create_test_container, Container
 from .config.settings import settings
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Controller Node Application")
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="테스트 모드로 실행 (임의 센서 데이터 생성 및 마스터 노드 전송)",
+    )
+    return parser.parse_args()
 
 # Configure logging
 logging.basicConfig(
@@ -24,20 +36,31 @@ logger = logging.getLogger(__name__)
 class Application:
     """Main application class for Controller Node."""
 
-    def __init__(self):
-        """Initialize application."""
+    def __init__(self, test_mode: bool = False):
+        """Initialize application.
+
+        Args:
+            test_mode: 테스트 모드 여부. True면 임의 센서 데이터 생성.
+        """
         self._container: Optional[Container] = None
         self._running = False
         self._shutdown_event = asyncio.Event()
+        self._test_mode = test_mode
 
     async def start(self) -> None:
         """Start the application."""
-        logger.info("Starting Controller Node...")
+        mode_str = " (테스트 모드)" if self._test_mode else ""
+        logger.info(f"Starting Controller Node{mode_str}...")
         logger.info(f"Device ID: {settings.device_id}")
         logger.info(f"Listening on port: {settings.master_node_port}")
 
         # Create container with dependencies
-        self._container = create_container()
+        if self._test_mode:
+            from .communication.mock_serial_device import MockSerialDeviceWithSensorData
+            mock_serial = MockSerialDeviceWithSensorData()
+            self._container = create_test_container(serial_device=mock_serial)
+        else:
+            self._container = create_container()
 
         # Setup signal handlers
         self._setup_signal_handlers()
@@ -93,7 +116,12 @@ class Application:
 
 async def main() -> None:
     """Main entry point."""
-    app = Application()
+    args = parse_args()
+
+    # Set global test mode flag
+    settings.test_mode = args.test
+
+    app = Application(test_mode=args.test)
 
     try:
         await app.start()

@@ -25,6 +25,9 @@ class Settings:
     # Application settings
     cycle_interval: float
 
+    # Test mode flag (set at runtime)
+    test_mode: bool = False
+
     @classmethod
     def from_env(cls) -> "Settings":
         """Create settings from environment variables."""

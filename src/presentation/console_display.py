@@ -15,6 +15,7 @@ from rich.text import Text
 from ..interfaces.presentation import IDisplay
 from ..domain.models import ControlSignal, ControlPacket, DeviceCommand, SystemStatus
 from ..domain.enums import ConnectionState
+from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +80,16 @@ class ConsoleDisplay(IDisplay):
         )
 
         # Header
+        header_text = Text()
+        header_text.append("컨트롤러 노드", style="bold white")
+        if settings.test_mode:
+            header_text.append("  [테스트 모드]", style="bold yellow")
+        header_text.justify = "center"
+
         layout["header"].update(
             Panel(
-                Text("컨트롤러 노드", style="bold white", justify="center"),
-                style="blue",
+                header_text,
+                style="blue" if not settings.test_mode else "yellow",
             )
         )
 

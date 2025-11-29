@@ -9,7 +9,7 @@ from typing_extensions import deprecated
 from .enums import ControlAction, ConnectionState, DeviceZone, PostureType
 
 
-@dataclass @deprecated
+@dataclass
 class ControlSignal:
     """Control signal received from master node.
 
