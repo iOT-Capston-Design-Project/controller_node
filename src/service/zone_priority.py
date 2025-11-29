@@ -5,7 +5,7 @@ and duration of pressure application.
 """
 
 import logging
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 from ..domain.enums import PostureType
 
@@ -41,8 +41,12 @@ class ZonePriorityService:
         pressures: Dict[str, int],
         durations: Dict[str, int],
         posture: PostureType = PostureType.SUPINE,
+        forced_orders: Optional[List[int]] = None,
     ) -> List[Tuple[int, int]]:
         """압력값과 지속시간을 기반으로 존 순서 결정.
+
+        서버에서 강제 순서(forced_orders)가 지정된 경우 해당 순서를 우선 적용.
+        강제 순서가 없는 경우 압력 기반으로 우선순위 계산.
 
         우선순위 점수 = 압력값 + (지속시간/60) * 10
         점수가 높은 존부터 순서대로 릴리프 실행.
@@ -51,10 +55,16 @@ class ZonePriorityService:
             pressures: 신체 부위별 압력값 {"occiput": 85, "sacrum": 70, ...}
             durations: 신체 부위별 지속시간(초) {"occiput": 300, ...}
             posture: 현재 자세 (향후 자세별 매핑 확장 가능)
+            forced_orders: 서버에서 지정한 강제 존 순서 [1, 2, 3, 4]
 
         Returns:
             [(zone_number, relief_duration_seconds), ...] 우선순위 순
         """
+        # 서버에서 강제 순서가 지정된 경우
+        if forced_orders:
+            logger.info(f"Using forced zone order from server: {forced_orders}")
+            return self._apply_forced_order(forced_orders, pressures, durations)
+
         zone_scores: Dict[int, Tuple[float, int, int]] = {}
 
         for body_part, pressure in pressures.items():
@@ -112,3 +122,52 @@ class ZonePriorityService:
             relief_time += 5
 
         return relief_time
+
+    def _apply_forced_order(
+        self,
+        forced_orders: List[int],
+        pressures: Dict[str, int],
+        durations: Dict[str, int],
+    ) -> List[Tuple[int, int]]:
+        """서버 강제 순서를 적용하여 존 시퀀스 생성.
+
+        강제 순서의 각 존에 대해 압력 데이터 기반으로 릴리프 시간 계산.
+        압력 데이터가 없는 존은 기본 릴리프 시간 적용.
+
+        Args:
+            forced_orders: 서버 지정 존 순서 [1, 2, 3, 4]
+            pressures: 신체 부위별 압력값
+            durations: 신체 부위별 지속시간
+
+        Returns:
+            [(zone_number, relief_duration_seconds), ...] 강제 순서대로
+        """
+        # 존별 최대 압력/지속시간 계산
+        zone_data: Dict[int, Tuple[int, int]] = {}
+        for body_part, pressure in pressures.items():
+            if body_part not in self.BODY_PART_TO_ZONE:
+                continue
+            zone = self.BODY_PART_TO_ZONE[body_part]
+            duration = durations.get(body_part, 0)
+
+            if zone not in zone_data or pressure > zone_data[zone][0]:
+                zone_data[zone] = (pressure, duration)
+
+        # 강제 순서대로 시퀀스 생성
+        result = []
+        for zone_num in forced_orders:
+            if zone_num < 1 or zone_num > 4:
+                logger.warning(f"Invalid zone number in forced_orders: {zone_num}")
+                continue
+
+            if zone_num in zone_data:
+                pressure, duration = zone_data[zone_num]
+                relief_time = self._calculate_relief_time(pressure, duration)
+            else:
+                # 압력 데이터 없으면 기본 시간
+                relief_time = self.BASE_RELIEF_TIME
+
+            result.append((zone_num, relief_time))
+
+        logger.info(f"Forced zone order applied: {result}")
+        return result

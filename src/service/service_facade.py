@@ -157,11 +157,19 @@ class ServiceFacade(IServiceFacade):
         # Display received packet
         self._display.show_packet_received(packet)
 
-        # 압력 기반 존 순서 결정
+        # 서버 강제 순서 확인 (controls.orders)
+        forced_orders = None
+        if packet.controls and isinstance(packet.controls, dict):
+            forced_orders = packet.controls.get("orders")
+            if forced_orders:
+                logger.info(f"Server forced zone order: {forced_orders}")
+
+        # 압력 기반 존 순서 결정 (강제 순서가 있으면 우선 적용)
         zone_sequence = self._zone_priority.determine_zone_order(
             pressures=packet.pressures,
             durations=packet.durations,
             posture=packet.posture,
+            forced_orders=forced_orders,
         )
 
         if zone_sequence:

@@ -3,12 +3,17 @@
 import asyncio
 import logging
 import random
+import threading
 from datetime import datetime
+from queue import Queue, Empty
 from typing import List, Optional
 
-from ..interfaces.device import ISerialDevice
+import serial
+
+from ..interfaces.device import ISerialDevice, IDeviceProtocol
 from ..domain.models import DeviceCommand, DeviceStatus, SensorData
-from ..domain.enums import DeviceZone
+from ..domain.enums import DeviceZone, ControlAction
+from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -173,3 +178,346 @@ class MockSerialDeviceWithSensorData(ISerialDevice):
         """
         self._min_zones = min_zones
         self._max_zones = max_zones
+
+
+class TestSerialProtocol(IDeviceProtocol):
+    """테스트용 아두이노 프로토콜.
+
+    Commands:
+    - Z<zone>:<action>\n : Zone control (inflate/deflate)
+    - P : Pause/Emergency stop
+    - STATUS : Query current state
+    """
+
+    def encode_command(self, command: DeviceCommand) -> bytes:
+        """Encode command to bytes."""
+        return f"Z{command.zone.value}:{command.action.value}\n".encode()
+
+    def decode_response(self, data: bytes) -> dict:
+        """Decode response from device."""
+        try:
+            response = data.decode("utf-8", errors="ignore").strip()
+            if not response:
+                return {"success": True, "message": ""}
+            if response == "OK":
+                return {"success": True, "message": "OK"}
+            elif response.startswith("ERR:"):
+                return {"success": False, "error": response[4:]}
+            else:
+                return {"success": True, "message": response, "is_log": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def encode_status_request(self) -> bytes:
+        """Encode status query."""
+        return b"STATUS\n"
+
+    def encode_emergency_stop(self) -> bytes:
+        """Encode emergency stop."""
+        return b"P"
+
+
+class SerialTestDevice(ISerialDevice):
+    """실제 시리얼 통신 + 테스트 명령 자동 전송.
+
+    아두이노와 실제 시리얼 통신을 수행하면서
+    주기적으로 테스트 명령을 자동 전송합니다.
+    """
+
+    def __init__(
+        self,
+        port: Optional[str] = None,
+        baudrate: Optional[int] = None,
+        test_interval: float = 5.0,
+    ):
+        """Initialize test serial device.
+
+        Args:
+            port: 시리얼 포트 경로 (기본: settings에서 로드).
+            baudrate: 보드레이트 (기본: settings에서 로드).
+            test_interval: 테스트 명령 전송 주기 (초).
+        """
+        self._port = port or settings.serial_port
+        self._baudrate = baudrate or settings.serial_baudrate
+        self._protocol = TestSerialProtocol()
+        self._connected = False
+        self._serial: Optional[serial.Serial] = None
+
+        # Device state
+        self._zone_states: dict = {zone.value: 0 for zone in DeviceZone}
+        self._last_command_success = True
+        self._error_message: Optional[str] = None
+
+        # Reader thread
+        self._reader_thread: Optional[threading.Thread] = None
+        self._stop_reader = threading.Event()
+        self._response_queue: Queue = Queue()
+        self._log_queue: Queue = Queue()
+        self._sensor_data_queue: Queue = Queue()
+
+        # Test mode settings
+        self._test_interval = test_interval
+        self._test_task: Optional[asyncio.Task] = None
+        self._test_sequence_index = 0
+
+    def _reader_loop(self) -> None:
+        """Background thread to read Arduino serial output."""
+        while not self._stop_reader.is_set():
+            try:
+                if self._serial and self._serial.is_open:
+                    line = self._serial.readline()
+                    if line:
+                        decoded = line.decode("utf-8", errors="ignore").strip()
+                        if decoded:
+                            logger.info(f"[Arduino] {decoded}")
+
+                            # 센서 데이터 파싱 (ZONES:1,2,3 형식)
+                            if decoded.startswith("ZONES:"):
+                                zones_str = decoded[6:]
+                                if zones_str:
+                                    inflated_zones = [
+                                        int(z.strip())
+                                        for z in zones_str.split(",")
+                                        if z.strip()
+                                    ]
+                                else:
+                                    inflated_zones = []
+                                sensor_data = SensorData(inflated_zones=inflated_zones)
+                                self._sensor_data_queue.put(sensor_data)
+                                logger.debug(f"센서 데이터 수신: zones={inflated_zones}")
+                                continue
+
+                            # JSON 센서 데이터 파싱
+                            if decoded.startswith("{") and "inflated_zones" in decoded:
+                                try:
+                                    import json
+                                    sensor_json = json.loads(decoded)
+                                    sensor_data = SensorData(
+                                        inflated_zones=sensor_json.get("inflated_zones", [])
+                                    )
+                                    self._sensor_data_queue.put(sensor_data)
+                                    continue
+                                except:
+                                    pass
+
+                            # 응답 파싱
+                            result = self._protocol.decode_response(line)
+                            if result.get("is_log"):
+                                self._log_queue.put(decoded)
+                            else:
+                                self._response_queue.put(result)
+
+            except serial.SerialException as e:
+                logger.error(f"시리얼 읽기 오류: {e}")
+                self._stop_reader.set()
+                break
+            except Exception as e:
+                logger.error(f"Reader 오류: {e}")
+
+    async def connect(self) -> bool:
+        """시리얼 연결 및 테스트 루프 시작."""
+        try:
+            self._serial = serial.Serial(
+                port=self._port,
+                baudrate=self._baudrate,
+                timeout=1.0,
+            )
+
+            # 아두이노 리셋 대기
+            await asyncio.sleep(2.0)
+
+            # Reader 스레드 시작
+            self._stop_reader.clear()
+            self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self._reader_thread.start()
+
+            # 테스트 루프 시작
+            self._test_task = asyncio.create_task(self._test_command_loop())
+
+            logger.info(f"테스트 시리얼 연결됨: {self._port} @ {self._baudrate} baud")
+            self._connected = True
+            return True
+
+        except serial.SerialException as e:
+            logger.error(f"시리얼 연결 실패: {e}")
+            self._error_message = str(e)
+            self._connected = False
+            return False
+        except Exception as e:
+            logger.error(f"연결 오류: {e}")
+            self._error_message = str(e)
+            self._connected = False
+            return False
+
+    async def disconnect(self) -> None:
+        """연결 해제."""
+        # 테스트 루프 중지
+        if self._test_task:
+            self._test_task.cancel()
+            try:
+                await self._test_task
+            except asyncio.CancelledError:
+                pass
+
+        # Reader 스레드 중지
+        self._stop_reader.set()
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=2.0)
+
+        if self._serial and self._serial.is_open:
+            self._serial.close()
+
+        self._serial = None
+        self._connected = False
+        logger.info("테스트 시리얼 연결 해제됨")
+
+    def is_connected(self) -> bool:
+        """연결 상태 확인."""
+        return self._connected and self._serial is not None and self._serial.is_open
+
+    async def _test_command_loop(self) -> None:
+        """테스트 명령 자동 전송 루프.
+
+        Zone 1~4를 순차적으로 inflate/deflate 반복.
+        """
+        # 테스트 시퀀스: [(zone, action), ...]
+        test_sequence = [
+            (1, ControlAction.INFLATE),
+            (1, ControlAction.DEFLATE),
+            (2, ControlAction.INFLATE),
+            (2, ControlAction.DEFLATE),
+            (3, ControlAction.INFLATE),
+            (3, ControlAction.DEFLATE),
+            (4, ControlAction.INFLATE),
+            (4, ControlAction.DEFLATE),
+        ]
+
+        while self._connected:
+            try:
+                zone_num, action = test_sequence[self._test_sequence_index]
+                zone = DeviceZone(zone_num)
+
+                command = DeviceCommand(
+                    zone=zone,
+                    action=action,
+                    timestamp=datetime.now(),
+                )
+
+                logger.info(f"[테스트] 명령 전송: Zone {zone_num} {action.value}")
+                await self.send_command(command)
+
+                # 다음 명령으로
+                self._test_sequence_index = (self._test_sequence_index + 1) % len(test_sequence)
+
+                await asyncio.sleep(self._test_interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"테스트 루프 오류: {e}")
+                await asyncio.sleep(1.0)
+
+    async def send_command(self, command: DeviceCommand) -> bool:
+        """명령 전송."""
+        if not self.is_connected():
+            logger.error("명령 전송 실패: 연결되지 않음")
+            return False
+
+        try:
+            data = self._protocol.encode_command(command)
+            logger.debug(f"전송: {data.decode().strip()}")
+            self._serial.write(data)
+
+            # 응답 대기
+            try:
+                response = self._response_queue.get(timeout=2.0)
+                if response.get("success"):
+                    if command.action == ControlAction.INFLATE:
+                        self._zone_states[command.zone.value] = 1
+                    elif command.action == ControlAction.DEFLATE:
+                        self._zone_states[command.zone.value] = 0
+
+                    logger.info(f"명령 성공: {command}")
+                    self._last_command_success = True
+                    return True
+                else:
+                    self._error_message = response.get("error", "Unknown error")
+                    logger.error(f"명령 실패: {self._error_message}")
+                    self._last_command_success = False
+                    return False
+            except Empty:
+                # 응답 없음 - 성공으로 간주
+                if command.action == ControlAction.INFLATE:
+                    self._zone_states[command.zone.value] = 1
+                elif command.action == ControlAction.DEFLATE:
+                    self._zone_states[command.zone.value] = 0
+
+                logger.info(f"명령 전송 (응답 없음): {command}")
+                self._last_command_success = True
+                return True
+
+        except Exception as e:
+            logger.error(f"명령 전송 오류: {e}")
+            self._error_message = str(e)
+            self._last_command_success = False
+            return False
+
+    async def send_commands(self, commands: List[DeviceCommand]) -> bool:
+        """여러 명령 전송."""
+        success = True
+        for command in commands:
+            if not await self.send_command(command):
+                success = False
+        return success
+
+    async def get_status(self) -> DeviceStatus:
+        """장치 상태 조회."""
+        return DeviceStatus(
+            zone_states=self._zone_states.copy(),
+            is_operational=self.is_connected(),
+            last_command_success=self._last_command_success,
+            error_message=self._error_message,
+            last_updated=datetime.now(),
+        )
+
+    async def emergency_stop(self) -> bool:
+        """긴급 정지."""
+        if not self.is_connected():
+            return False
+
+        try:
+            self._serial.write(self._protocol.encode_emergency_stop())
+            self._zone_states = {zone.value: 0 for zone in DeviceZone}
+            logger.warning("긴급 정지 실행")
+            return True
+        except Exception as e:
+            logger.error(f"긴급 정지 실패: {e}")
+            return False
+
+    def get_sensor_data(self) -> Optional[SensorData]:
+        """최신 센서 데이터 반환."""
+        latest_data = None
+        while not self._sensor_data_queue.empty():
+            try:
+                latest_data = self._sensor_data_queue.get_nowait()
+            except Empty:
+                break
+        return latest_data
+
+    def has_sensor_data(self) -> bool:
+        """센서 데이터 존재 여부."""
+        return not self._sensor_data_queue.empty()
+
+    def get_recent_logs(self, max_count: int = 10) -> List[str]:
+        """최근 로그 메시지."""
+        logs = []
+        while not self._log_queue.empty() and len(logs) < max_count:
+            try:
+                logs.append(self._log_queue.get_nowait())
+            except Empty:
+                break
+        return logs
+
+    def set_test_interval(self, interval: float) -> None:
+        """테스트 명령 전송 주기 설정."""
+        self._test_interval = interval

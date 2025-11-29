@@ -19,6 +19,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="테스트 모드로 실행 (임의 센서 데이터 생성 및 마스터 노드 전송)",
     )
+    parser.add_argument(
+        "--serial-test",
+        action="store_true",
+        help="시리얼 테스트 모드 (실제 아두이노에 테스트 명령 전송)",
+    )
+    parser.add_argument(
+        "--test-interval",
+        type=float,
+        default=5.0,
+        help="시리얼 테스트 명령 전송 주기 (초, 기본: 5.0)",
+    )
     return parser.parse_args()
 
 # Configure logging
@@ -36,26 +47,48 @@ logger = logging.getLogger(__name__)
 class Application:
     """Main application class for Controller Node."""
 
-    def __init__(self, test_mode: bool = False):
+    def __init__(
+        self,
+        test_mode: bool = False,
+        serial_test_mode: bool = False,
+        test_interval: float = 5.0,
+    ):
         """Initialize application.
 
         Args:
             test_mode: 테스트 모드 여부. True면 임의 센서 데이터 생성.
+            serial_test_mode: 시리얼 테스트 모드. True면 실제 아두이노에 테스트 명령 전송.
+            test_interval: 시리얼 테스트 명령 전송 주기 (초).
         """
         self._container: Optional[Container] = None
         self._running = False
         self._shutdown_event = asyncio.Event()
         self._test_mode = test_mode
+        self._serial_test_mode = serial_test_mode
+        self._test_interval = test_interval
 
     async def start(self) -> None:
         """Start the application."""
-        mode_str = " (테스트 모드)" if self._test_mode else ""
+        if self._serial_test_mode:
+            mode_str = " (시리얼 테스트 모드)"
+        elif self._test_mode:
+            mode_str = " (테스트 모드)"
+        else:
+            mode_str = ""
+
         logger.info(f"Starting Controller Node{mode_str}...")
         logger.info(f"Device ID: {settings.device_id}")
         logger.info(f"Listening on port: {settings.master_node_port}")
 
         # Create container with dependencies
-        if self._test_mode:
+        if self._serial_test_mode:
+            # 시리얼 테스트 모드: 실제 아두이노에 테스트 명령 전송
+            from .communication.mock_serial_device import SerialTestDevice
+            serial_device = SerialTestDevice(test_interval=self._test_interval)
+            self._container = create_test_container(serial_device=serial_device)
+            logger.info(f"시리얼 테스트 모드: {self._test_interval}초 간격으로 명령 전송")
+        elif self._test_mode:
+            # 테스트 모드: 임의 센서 데이터 생성 (시리얼 통신 없음)
             from .communication.mock_serial_device import MockSerialDeviceWithSensorData
             mock_serial = MockSerialDeviceWithSensorData()
             self._container = create_test_container(serial_device=mock_serial)
@@ -119,9 +152,13 @@ async def main() -> None:
     args = parse_args()
 
     # Set global test mode flag
-    settings.test_mode = args.test
+    settings.test_mode = args.test or args.serial_test
 
-    app = Application(test_mode=args.test)
+    app = Application(
+        test_mode=args.test,
+        serial_test_mode=args.serial_test,
+        test_interval=args.test_interval,
+    )
 
     try:
         await app.start()
