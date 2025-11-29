@@ -21,22 +21,16 @@ class ConnectionState(Enum):
 
 
 class DeviceZone(Enum):
-    """Device zones corresponding to body parts.
+    """Device zones using quadrant system.
 
-    Zone mapping (matches master_node BodyPart):
-    - Zone 1: Head/Occiput area
-    - Zone 2: Scapula/Shoulders area
-    - Zone 3: Right elbow area
-    - Zone 4: Left elbow area
-    - Zone 5: Hip area
-    - Zone 6: Right heel area
-    - Zone 7: Left heel area
+    Zone mapping (quadrant-based):
+    - Zone 1: 1사분면 (우측 상단 / Right Upper)
+    - Zone 2: 2사분면 (좌측 상단 / Left Upper)
+    - Zone 3: 3사분면 (좌측 하단 / Left Lower)
+    - Zone 4: 4사분면 (우측 하단 / Right Lower)
     """
 
-    ZONE_1 = 1  # Head
-    ZONE_2 = 2  # Scapula
-    ZONE_3 = 3  # Right elbow
-    ZONE_4 = 4  # Left elbow
-    ZONE_5 = 5  # Hip
-    ZONE_6 = 6  # Right heel
-    ZONE_7 = 7  # Left heel
+    ZONE_1 = 1  # 1사분면 (우측 상단)
+    ZONE_2 = 2  # 2사분면 (좌측 상단)
+    ZONE_3 = 3  # 3사분면 (좌측 하단)
+    ZONE_4 = 4  # 4사분면 (우측 하단)

@@ -18,15 +18,12 @@ logger = logging.getLogger(__name__)
 class ControlService(IControlService):
     """Service for processing control signals into device commands."""
 
-    # Mapping from zone number to DeviceZone enum
+    # Mapping from zone number to DeviceZone enum (quadrant system)
     ZONE_MAP = {
-        1: DeviceZone.ZONE_1,
-        2: DeviceZone.ZONE_2,
-        3: DeviceZone.ZONE_3,
-        4: DeviceZone.ZONE_4,
-        5: DeviceZone.ZONE_5,
-        6: DeviceZone.ZONE_6,
-        7: DeviceZone.ZONE_7,
+        1: DeviceZone.ZONE_1,  # 1사분면 (우측 상단)
+        2: DeviceZone.ZONE_2,  # 2사분면 (좌측 상단)
+        3: DeviceZone.ZONE_3,  # 3사분면 (좌측 하단)
+        4: DeviceZone.ZONE_4,  # 4사분면 (우측 하단)
     }
 
     def process_signal(self, signal: ControlSignal) -> List[DeviceCommand]:
