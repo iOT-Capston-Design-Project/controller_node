@@ -15,6 +15,8 @@ from ..interfaces.presentation import IDisplay
 from ..domain.models import ControlSignal, ControlPacket, SystemStatus
 from ..domain.enums import ConnectionState
 from ..config.settings import settings
+from .zone_priority import ZonePriorityService
+from .pattern_executor import PatternExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,10 @@ class ServiceFacade(IServiceFacade):
         self._errors_count = 0
         self._last_packet: Optional[ControlPacket] = None
         self._sensor_send_task = None
+
+        # 압력 기반 순차 실행 서비스
+        self._zone_priority = ZonePriorityService()
+        self._pattern_executor = PatternExecutor(serial_device)
 
     async def initialize(self) -> None:
         """Initialize all services and connections."""
@@ -106,6 +112,10 @@ class ServiceFacade(IServiceFacade):
         """Gracefully shutdown all services."""
         logger.info("Shutting down services...")
 
+        # Stop pattern executor
+        if self._pattern_executor.is_running:
+            await self._pattern_executor.stop()
+
         # Stop sensor data loop
         if self._sensor_send_task:
             self._sensor_send_task.cancel()
@@ -128,6 +138,9 @@ class ServiceFacade(IServiceFacade):
     async def handle_control_packet(self, packet: ControlPacket) -> bool:
         """Process incoming control packet from master node.
 
+        압력값과 지속시간을 기반으로 존 순서를 결정하고
+        시간 기반으로 순차적으로 inflate/deflate 실행.
+
         Args:
             packet: Control packet received from master.
 
@@ -143,6 +156,23 @@ class ServiceFacade(IServiceFacade):
 
         # Display received packet
         self._display.show_packet_received(packet)
+
+        # 압력 기반 존 순서 결정
+        zone_sequence = self._zone_priority.determine_zone_order(
+            pressures=packet.pressures,
+            durations=packet.durations,
+            posture=packet.posture,
+        )
+
+        if zone_sequence:
+            logger.info(f"Starting pressure-based pattern: {zone_sequence}")
+            self._display.log_message(
+                f"압력 기반 패턴 시작: {zone_sequence}", level="info"
+            )
+            # 백그라운드에서 순차 실행
+            self._pattern_executor.start_background(zone_sequence)
+        else:
+            logger.debug("No zones require relief based on pressure data")
 
         # Update display
         self._display.update_status(self.get_system_status())
