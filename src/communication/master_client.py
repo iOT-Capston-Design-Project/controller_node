@@ -223,7 +223,7 @@ class MasterNodeClient(IMasterNodeClient):
             data = json.dumps(sensor_data.to_dict()) + "\n"
             self._client_writer.write(data.encode())
             await self._client_writer.drain()
-            logger.debug(f"Sensor data sent: {sensor_data.pressures}")
+            logger.debug(f"Sensor data sent: zones={sensor_data.inflated_zones}")
             return True
         except Exception as e:
             logger.error(f"Failed to send sensor data: {e}")

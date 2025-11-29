@@ -115,14 +115,17 @@ class ControlPacket:
 
 @dataclass
 class SensorData:
-    """시리얼 장치에서 수신하는 센서 데이터."""
+    """시리얼 장치에서 수신하는 센서 데이터.
 
-    pressures: dict  # zone/body_part -> 압력값
+    공기가 들어간 zone 리스트를 저장.
+    """
+
+    inflated_zones: List[int]  # 공기가 들어간 zone 번호 리스트
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> dict:
         """딕셔너리로 변환."""
         return {
-            "pressures": self.pressures,
+            "inflated_zones": self.inflated_zones,
             "timestamp": self.timestamp.isoformat(),
         }

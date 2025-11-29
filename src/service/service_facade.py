@@ -94,7 +94,7 @@ class ServiceFacade(IServiceFacade):
                 if sensor_data:
                     if await self._master_client.send_sensor_data(sensor_data):
                         self._display.log_message(
-                            f"센서 데이터 전송: {sensor_data.pressures}", level="info"
+                            f"센서 데이터 전송: zones={sensor_data.inflated_zones}", level="info"
                         )
                 await asyncio.sleep(0.1)  # 100ms 주기로 확인
             except asyncio.CancelledError:

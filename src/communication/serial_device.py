@@ -118,19 +118,31 @@ class SerialDevice(ISerialDevice):
                         if decoded:
                             logger.info(f"[Arduino] {decoded}")
 
-                            # 센서 데이터 형식 확인 (JSON 형식으로 압력 데이터 수신)
-                            if decoded.startswith("{") and "pressures" in decoded:
+                            # 센서 데이터 형식 확인
+                            # 형식 1: JSON {"inflated_zones": [1, 2, 3]}
+                            # 형식 2: 간단한 리스트 "ZONES:1,2,3" 또는 "ZONES:"(빈 리스트)
+                            if decoded.startswith("{") and "inflated_zones" in decoded:
                                 try:
                                     import json
                                     sensor_json = json.loads(decoded)
                                     sensor_data = SensorData(
-                                        pressures=sensor_json.get("pressures", {})
+                                        inflated_zones=sensor_json.get("inflated_zones", [])
                                     )
                                     self._sensor_data_queue.put(sensor_data)
-                                    logger.debug(f"Sensor data received: {sensor_data.pressures}")
+                                    logger.debug(f"Sensor data received: zones={sensor_data.inflated_zones}")
                                     continue
                                 except json.JSONDecodeError:
                                     pass
+                            elif decoded.startswith("ZONES:"):
+                                zones_str = decoded[6:]  # "ZONES:" 이후 부분
+                                if zones_str:
+                                    inflated_zones = [int(z.strip()) for z in zones_str.split(",") if z.strip()]
+                                else:
+                                    inflated_zones = []
+                                sensor_data = SensorData(inflated_zones=inflated_zones)
+                                self._sensor_data_queue.put(sensor_data)
+                                logger.debug(f"Sensor data received: zones={sensor_data.inflated_zones}")
+                                continue
 
                             # Parse response
                             result = self._protocol.decode_response(line)
