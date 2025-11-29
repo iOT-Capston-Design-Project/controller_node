@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..interfaces.presentation import IDisplay
-from ..domain.models import ControlSignal, DeviceCommand, SystemStatus
+from ..domain.models import ControlSignal, ControlPacket, DeviceCommand, SystemStatus
 from ..domain.enums import ConnectionState
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ class ConsoleDisplay(IDisplay):
         # State
         self._status: Optional[SystemStatus] = None
         self._last_signal: Optional[ControlSignal] = None
+        self._last_packet: Optional[ControlPacket] = None
         self._last_commands: List[DeviceCommand] = []
         self._log_messages: deque = deque(maxlen=max_log_lines)
         self._error_message: Optional[str] = None
@@ -146,8 +147,51 @@ class ConsoleDisplay(IDisplay):
         """Generate main panel with signal and command info."""
         layout = Layout()
         layout.split_column(
+            Layout(name="packet", ratio=2),
             Layout(name="signal", ratio=1),
             Layout(name="commands", ratio=2),
+        )
+
+        # ControlPacket info
+        packet_table = Table(show_header=True, box=None, padding=(0, 1))
+        packet_table.add_column("항목", style="cyan")
+        packet_table.add_column("값")
+
+        if self._last_packet:
+            posture_names = {
+                "supine": "앙와위",
+                "prone": "복와위",
+                "left_lateral": "좌측와위",
+                "right_lateral": "우측와위",
+                "sitting": "좌위",
+                "unknown": "알 수 없음",
+            }
+            posture_name = posture_names.get(self._last_packet.posture.value, self._last_packet.posture.value)
+            packet_table.add_row("자세", Text(posture_name, style="bold magenta"))
+
+            # 압력 정보
+            pressure_str = ", ".join(
+                f"{k}: {v}" for k, v in self._last_packet.pressures.items()
+            ) if self._last_packet.pressures else "없음"
+            packet_table.add_row("압력", pressure_str)
+
+            # 지속시간 정보
+            duration_str = ", ".join(
+                f"{k}: {v}초" for k, v in self._last_packet.durations.items()
+            ) if self._last_packet.durations else "없음"
+            packet_table.add_row("지속시간", duration_str)
+
+            # 제어 명령
+            if self._last_packet.controls:
+                controls_str = str(self._last_packet.controls)
+                packet_table.add_row("제어 명령", controls_str[:50])
+            else:
+                packet_table.add_row("제어 명령", "없음")
+        else:
+            packet_table.add_row("", "패킷 대기 중...")
+
+        layout["packet"].update(
+            Panel(packet_table, title="마지막 ControlPacket", border_style="magenta")
         )
 
         # Signal info
@@ -246,6 +290,20 @@ class ConsoleDisplay(IDisplay):
         self._add_log(
             f"신호 수신: 구역={signal.target_zones}, "
             f"동작={signal.action.value}, 강도={signal.intensity}%",
+            "info",
+        )
+        self._refresh()
+
+    def show_packet_received(self, packet: ControlPacket) -> None:
+        """Display received control packet.
+
+        Args:
+            packet: The received control packet.
+        """
+        self._last_packet = packet
+        self._add_log(
+            f"패킷 수신: 자세={packet.posture.value}, "
+            f"압력={packet.pressures}, 지속시간={packet.durations}",
             "info",
         )
         self._refresh()

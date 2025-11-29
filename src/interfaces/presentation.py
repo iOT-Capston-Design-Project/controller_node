@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from ..domain.models import ControlSignal, DeviceCommand, SystemStatus
+from ..domain.models import ControlSignal, ControlPacket, DeviceCommand, SystemStatus
 
 
 class IDisplay(ABC):
@@ -34,6 +34,15 @@ class IDisplay(ABC):
 
         Args:
             signal: The received control signal.
+        """
+        pass
+
+    @abstractmethod
+    def show_packet_received(self, packet: ControlPacket) -> None:
+        """Display received control packet.
+
+        Args:
+            packet: The received control packet.
         """
         pass
 

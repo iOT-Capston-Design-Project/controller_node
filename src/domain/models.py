@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
-from .enums import ControlAction, ConnectionState, DeviceZone
+from .enums import ControlAction, ConnectionState, DeviceZone, PostureType
 
 
 @dataclass
@@ -75,3 +75,53 @@ class SystemStatus:
     last_command_executed: Optional[datetime] = None
     commands_executed: int = 0
     errors_count: int = 0
+
+
+@dataclass
+class ControlPacket:
+    """마스터 노드에서 전송되는 통합 패킷."""
+
+    posture: PostureType
+    pressures: dict  # BodyPart.value -> 압력값
+    durations: dict  # BodyPart.value -> 지속시간(초)
+    controls: Optional[dict] = None  # 서버에서 받은 제어 명령 (nullable)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ControlPacket":
+        """딕셔너리에서 ControlPacket 생성."""
+        posture_value = data.get("posture", "unknown")
+        try:
+            posture = PostureType(posture_value)
+        except ValueError:
+            posture = PostureType.UNKNOWN
+
+        return cls(
+            posture=posture,
+            pressures=data.get("pressures", {}),
+            durations=data.get("durations", {}),
+            controls=data.get("controls"),
+        )
+
+    def to_dict(self) -> dict:
+        """딕셔너리로 변환."""
+        return {
+            "posture": self.posture.value,
+            "pressures": self.pressures,
+            "durations": self.durations,
+            "controls": self.controls,
+        }
+
+
+@dataclass
+class SensorData:
+    """시리얼 장치에서 수신하는 센서 데이터."""
+
+    pressures: dict  # zone/body_part -> 압력값
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict:
+        """딕셔너리로 변환."""
+        return {
+            "pressures": self.pressures,
+            "timestamp": self.timestamp.isoformat(),
+        }

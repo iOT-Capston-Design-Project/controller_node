@@ -13,7 +13,7 @@ from queue import Queue, Empty
 import serial
 
 from ..interfaces.device import ISerialDevice, IDeviceProtocol
-from ..domain.models import DeviceCommand, DeviceStatus
+from ..domain.models import DeviceCommand, DeviceStatus, SensorData
 from ..domain.enums import DeviceZone, ControlAction
 from ..config.settings import settings
 
@@ -105,6 +105,7 @@ class SerialDevice(ISerialDevice):
         self._stop_reader = threading.Event()
         self._response_queue: Queue = Queue()
         self._log_queue: Queue = Queue()
+        self._sensor_data_queue: Queue = Queue()  # 센서 데이터 큐
 
     def _reader_loop(self) -> None:
         """Background thread to read Arduino serial output."""
@@ -116,6 +117,21 @@ class SerialDevice(ISerialDevice):
                         decoded = line.decode("utf-8", errors="ignore").strip()
                         if decoded:
                             logger.info(f"[Arduino] {decoded}")
+
+                            # 센서 데이터 형식 확인 (JSON 형식으로 압력 데이터 수신)
+                            if decoded.startswith("{") and "pressures" in decoded:
+                                try:
+                                    import json
+                                    sensor_json = json.loads(decoded)
+                                    sensor_data = SensorData(
+                                        pressures=sensor_json.get("pressures", {})
+                                    )
+                                    self._sensor_data_queue.put(sensor_data)
+                                    logger.debug(f"Sensor data received: {sensor_data.pressures}")
+                                    continue
+                                except json.JSONDecodeError:
+                                    pass
+
                             # Parse response
                             result = self._protocol.decode_response(line)
                             if result.get("is_log"):
@@ -338,3 +354,25 @@ class SerialDevice(ISerialDevice):
             except Empty:
                 break
         return logs
+
+    def get_sensor_data(self) -> Optional[SensorData]:
+        """Get latest sensor data from Arduino.
+
+        Returns:
+            Latest sensor data or None if no data available.
+        """
+        latest_data = None
+        while not self._sensor_data_queue.empty():
+            try:
+                latest_data = self._sensor_data_queue.get_nowait()
+            except Empty:
+                break
+        return latest_data
+
+    def has_sensor_data(self) -> bool:
+        """Check if there is sensor data available.
+
+        Returns:
+            True if sensor data is available.
+        """
+        return not self._sensor_data_queue.empty()

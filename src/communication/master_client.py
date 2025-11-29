@@ -10,7 +10,7 @@ import logging
 from typing import Optional, Callable, Awaitable
 
 from ..interfaces.communication import IMasterNodeClient
-from ..domain.models import ControlSignal
+from ..domain.models import ControlSignal, ControlPacket, SensorData
 from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ class MasterNodeClient(IMasterNodeClient):
         self._client_writer: Optional[asyncio.StreamWriter] = None
         self._client_reader: Optional[asyncio.StreamReader] = None
         self._signal_handler: Optional[Callable[[ControlSignal], Awaitable[None]]] = None
+        self._packet_handler: Optional[Callable[[ControlPacket], Awaitable[None]]] = None
         self._connected = False
         self._running = False
 
@@ -112,12 +113,27 @@ class MasterNodeClient(IMasterNodeClient):
 
                 # Parse JSON message
                 try:
-                    signal_data = json.loads(message)
-                    signal = ControlSignal.from_dict(signal_data)
+                    data = json.loads(message)
 
-                    # Call signal handler if set
-                    if self._signal_handler:
-                        await self._signal_handler(signal)
+                    # ControlPacket 형식인지 확인 (posture 필드 존재 여부로 구분)
+                    if "posture" in data:
+                        packet = ControlPacket.from_dict(data)
+                        logger.info(
+                            f"[ControlPacket] 자세={packet.posture.value}, "
+                            f"압력={packet.pressures}, 지속시간={packet.durations}, "
+                            f"제어명령={packet.controls}"
+                        )
+
+                        # Call packet handler if set
+                        if self._packet_handler:
+                            await self._packet_handler(packet)
+                    else:
+                        # 기존 ControlSignal 형식
+                        signal = ControlSignal.from_dict(data)
+
+                        # Call signal handler if set
+                        if self._signal_handler:
+                            await self._signal_handler(signal)
 
                     # Send acknowledgment
                     await self.send_ack()
@@ -170,6 +186,16 @@ class MasterNodeClient(IMasterNodeClient):
         """
         self._signal_handler = handler
 
+    def set_packet_handler(
+        self, handler: Callable[[ControlPacket], Awaitable[None]]
+    ) -> None:
+        """Set the callback handler for received control packets.
+
+        Args:
+            handler: Async function to call when a packet is received.
+        """
+        self._packet_handler = handler
+
     async def send_ack(self) -> None:
         """Send acknowledgment to master node after processing signal."""
         if self._client_writer:
@@ -179,3 +205,26 @@ class MasterNodeClient(IMasterNodeClient):
                 logger.debug("ACK sent to master node")
             except Exception as e:
                 logger.error(f"Failed to send ACK: {e}")
+
+    async def send_sensor_data(self, sensor_data: SensorData) -> bool:
+        """Send sensor data to master node.
+
+        Args:
+            sensor_data: Sensor data to send.
+
+        Returns:
+            True if data was sent successfully.
+        """
+        if not self._client_writer or not self._connected:
+            logger.warning("Cannot send sensor data: master node not connected")
+            return False
+
+        try:
+            data = json.dumps(sensor_data.to_dict()) + "\n"
+            self._client_writer.write(data.encode())
+            await self._client_writer.drain()
+            logger.debug(f"Sensor data sent: {sensor_data.pressures}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send sensor data: {e}")
+            return False
