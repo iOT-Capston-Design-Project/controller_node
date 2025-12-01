@@ -90,7 +90,7 @@ class ControlPacket:
     @classmethod
     def from_dict(cls, data: dict) -> "ControlPacket":
         """딕셔너리에서 ControlPacket 생성."""
-        posture_value = data.get("posture", "unknown")
+        posture_value = data.get("posture", 0)
         try:
             posture = PostureType(posture_value)
         except ValueError:

@@ -39,9 +39,11 @@ class DeviceZone(Enum):
 class PostureType(Enum):
     """자세 유형."""
 
-    SUPINE = "supine"  # 앙와위 (바로 누운 자세)
-    PRONE = "prone"  # 복와위 (엎드린 자세)
-    LEFT_LATERAL = "left_lateral"  # 좌측와위 (왼쪽으로 누운 자세)
-    RIGHT_LATERAL = "right_lateral"  # 우측와위 (오른쪽으로 누운 자세)
-    SITTING = "sitting"  # 위 (앉은 자세)
-    UNKNOWN = "unknown"  # 알 수 없음
+    UNKNOWN = 0
+    SITTING = 1
+    LEFT_SIDE = 2       # 좌측위
+    RIGHT_SIDE = 3      # 우측위
+    SUPINE = 4          # 앙와위 (등)
+    PRONE = 5           # 복와위 (배)
+    SUPINE_LEFT = 6     # 앙와위 + 왼쪽 다리 올림
+    SUPINE_RIGHT = 7    # 앙와위 + 오른쪽 다리 올림
