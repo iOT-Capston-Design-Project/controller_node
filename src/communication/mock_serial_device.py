@@ -184,7 +184,8 @@ class TestSerialProtocol(IDeviceProtocol):
     """테스트용 아두이노 프로토콜.
 
     Commands:
-    - Z<zone>:<action>\n : Zone control (inflate/deflate)
+    - SEQ:<z1>,<z2>,...\n : Start sequence pattern
+    - QUEUE:<z1>,<z2>,...\n : Queue next sequence
     - P : Pause/Emergency stop
     - STATUS : Query current state
     """
@@ -199,8 +200,8 @@ class TestSerialProtocol(IDeviceProtocol):
             response = data.decode("utf-8", errors="ignore").strip()
             if not response:
                 return {"success": True, "message": ""}
-            if response == "OK":
-                return {"success": True, "message": "OK"}
+            if response.startswith("OK"):
+                return {"success": True, "message": response}
             elif response.startswith("ERR:"):
                 return {"success": False, "error": response[4:]}
             else:
@@ -216,26 +217,47 @@ class TestSerialProtocol(IDeviceProtocol):
         """Encode emergency stop."""
         return b"P"
 
+    def encode_sequence(self, zones: List[int]) -> bytes:
+        """Encode sequence pattern command.
+
+        Args:
+            zones: List of zone numbers (1-indexed) e.g., [1, 2, 3]
+
+        Returns:
+            Encoded command bytes e.g., b"SEQ:1,2,3\n"
+        """
+        zones_str = ",".join(str(z) for z in zones)
+        return f"SEQ:{zones_str}\n".encode()
+
 
 class SerialTestDevice(ISerialDevice):
-    """실제 시리얼 통신 + 테스트 명령 자동 전송.
+    """실제 시리얼 통신 + 시퀀스 테스트 명령 자동 전송.
 
     아두이노와 실제 시리얼 통신을 수행하면서
-    주기적으로 테스트 명령을 자동 전송합니다.
+    주기적으로 SEQ 명령을 자동 전송합니다.
     """
+
+    # 테스트용 시퀀스 패턴들 (순환)
+    TEST_SEQUENCES = [
+        [1, 2, 3, 4],  # 전체 순환
+        [1, 3],        # 대각선 1
+        [2, 4],        # 대각선 2
+        [1, 2],        # 상단
+        [3, 4],        # 하단
+    ]
 
     def __init__(
         self,
         port: Optional[str] = None,
         baudrate: Optional[int] = None,
-        test_interval: float = 5.0,
+        test_interval: float = 30.0,
     ):
         """Initialize test serial device.
 
         Args:
             port: 시리얼 포트 경로 (기본: settings에서 로드).
             baudrate: 보드레이트 (기본: settings에서 로드).
-            test_interval: 테스트 명령 전송 주기 (초).
+            test_interval: 시퀀스 변경 주기 (초, 기본: 30초).
         """
         self._port = port or settings.serial_port
         self._baudrate = baudrate or settings.serial_baudrate
@@ -376,38 +398,20 @@ class SerialTestDevice(ISerialDevice):
         return self._connected and self._serial is not None and self._serial.is_open
 
     async def _test_command_loop(self) -> None:
-        """테스트 명령 자동 전송 루프.
+        """테스트 시퀀스 명령 자동 전송 루프.
 
-        Zone 1~4를 순차적으로 inflate/deflate 반복.
+        TEST_SEQUENCES에 정의된 패턴들을 순환하며 SEQ 명령 전송.
         """
-        # 테스트 시퀀스: [(zone, action), ...]
-        test_sequence = [
-            (1, ControlAction.INFLATE),
-            (1, ControlAction.DEFLATE),
-            (2, ControlAction.INFLATE),
-            (2, ControlAction.DEFLATE),
-            (3, ControlAction.INFLATE),
-            (3, ControlAction.DEFLATE),
-            (4, ControlAction.INFLATE),
-            (4, ControlAction.DEFLATE),
-        ]
-
         while self._connected:
             try:
-                zone_num, action = test_sequence[self._test_sequence_index]
-                zone = DeviceZone(zone_num)
+                # 현재 시퀀스 패턴
+                zones = self.TEST_SEQUENCES[self._test_sequence_index]
 
-                command = DeviceCommand(
-                    zone=zone,
-                    action=action,
-                    timestamp=datetime.now(),
-                )
+                logger.info(f"[테스트] 시퀀스 전송: SEQ:{','.join(map(str, zones))}")
+                await self.send_sequence(zones)
 
-                logger.info(f"[테스트] 명령 전송: Zone {zone_num} {action.value}")
-                await self.send_command(command)
-
-                # 다음 명령으로
-                self._test_sequence_index = (self._test_sequence_index + 1) % len(test_sequence)
+                # 다음 시퀀스로
+                self._test_sequence_index = (self._test_sequence_index + 1) % len(self.TEST_SEQUENCES)
 
                 await asyncio.sleep(self._test_interval)
 
@@ -416,6 +420,52 @@ class SerialTestDevice(ISerialDevice):
             except Exception as e:
                 logger.error(f"테스트 루프 오류: {e}")
                 await asyncio.sleep(1.0)
+
+    async def send_sequence(self, zones: List[int]) -> bool:
+        """시퀀스 패턴 명령 전송.
+
+        Args:
+            zones: Zone 번호 리스트 (1-indexed) e.g., [1, 2, 3]
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.is_connected():
+            logger.error("시퀀스 전송 실패: 연결되지 않음")
+            return False
+
+        if not zones:
+            logger.warning("빈 시퀀스, 전송 생략")
+            return False
+
+        try:
+            data = self._protocol.encode_sequence(zones)
+            logger.debug(f"전송: {data.decode().strip()}")
+            self._serial.write(data)
+
+            # 응답 대기
+            try:
+                response = self._response_queue.get(timeout=2.0)
+                if response.get("success"):
+                    logger.info(f"시퀀스 전송 성공: {zones} - {response.get('message', 'OK')}")
+                    self._last_command_success = True
+                    return True
+                else:
+                    self._error_message = response.get("error", "Unknown error")
+                    logger.error(f"시퀀스 전송 실패: {self._error_message}")
+                    self._last_command_success = False
+                    return False
+            except Empty:
+                # 응답 없음 - 성공으로 간주
+                logger.info(f"시퀀스 전송 (응답 없음): {zones}")
+                self._last_command_success = True
+                return True
+
+        except Exception as e:
+            logger.error(f"시퀀스 전송 오류: {e}")
+            self._error_message = str(e)
+            self._last_command_success = False
+            return False
 
     async def send_command(self, command: DeviceCommand) -> bool:
         """명령 전송."""
