@@ -86,6 +86,7 @@ class ControlPacket:
     pressures: dict  # BodyPart.value -> 압력값
     durations: dict  # BodyPart.value -> 지속시간(초)
     controls: Optional[dict] = None  # 서버에서 받은 제어 명령 (nullable)
+    activate_air: bool = False  # 에어셀 활성화 여부
 
     @classmethod
     def from_dict(cls, data: dict) -> "ControlPacket":
@@ -101,6 +102,7 @@ class ControlPacket:
             pressures=data.get("pressures", {}),
             durations=data.get("durations", {}),
             controls=data.get("controls"),
+            activate_air=bool(data.get("activate_air", False)),
         )
 
     def to_dict(self) -> dict:
@@ -110,6 +112,7 @@ class ControlPacket:
             "pressures": self.pressures,
             "durations": self.durations,
             "controls": self.controls,
+            "activate_air": self.activate_air,
         }
 
 

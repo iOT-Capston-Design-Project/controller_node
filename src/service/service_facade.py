@@ -61,6 +61,9 @@ class ServiceFacade(IServiceFacade):
         # Arduino에서도 중복 체크하지만, 불필요한 통신 줄이기 위해 여기서도 체크
         self._last_zone_sequence: Optional[List[int]] = None
 
+        # 에어셀 활성화 상태 추적 (상태 변경 시에만 명령 전송)
+        self._air_activated: bool = False
+
     async def initialize(self) -> None:
         """Initialize all services and connections."""
         logger.info("Initializing services...")
@@ -141,6 +144,7 @@ class ServiceFacade(IServiceFacade):
 
         압력값과 지속시간을 기반으로 존 순서를 결정하고
         Arduino에 시퀀스 명령을 전송하여 순차적으로 inflate/deflate 실행.
+        activate_air가 false면 아두이노를 정지시킴.
 
         Args:
             packet: Control packet received from master.
@@ -152,11 +156,38 @@ class ServiceFacade(IServiceFacade):
         self._last_packet = packet
         logger.info(
             f"Received packet: posture={packet.posture.value}, "
-            f"pressures={packet.pressures}, durations={packet.durations}"
+            f"pressures={packet.pressures}, durations={packet.durations}, "
+            f"activate_air={packet.activate_air}"
         )
 
         # Display received packet
         self._display.show_packet_received(packet)
+
+        # activate_air 상태 변경 확인 및 처리
+        if packet.activate_air != self._air_activated:
+            if packet.activate_air:
+                # 비활성화 -> 활성화: 시퀀스 시작 가능 상태로 전환
+                logger.info("Air activation enabled - Arduino can now receive sequences")
+                self._display.log_message("에어셀 활성화됨", level="info")
+                self._air_activated = True
+                # 이전 시퀀스 초기화 (새로 시작하므로)
+                self._last_zone_sequence = None
+            else:
+                # 활성화 -> 비활성화: 아두이노 정지
+                logger.info("Air activation disabled - Stopping Arduino")
+                self._display.log_message("에어셀 비활성화 - Arduino 정지", level="warning")
+                await self._serial_device.emergency_stop()
+                self._air_activated = False
+                self._last_zone_sequence = None
+                # 비활성화 상태에서는 시퀀스 전송하지 않음
+                self._display.update_status(self.get_system_status())
+                return True
+
+        # activate_air가 false면 시퀀스 전송하지 않음
+        if not packet.activate_air:
+            logger.debug("Air not activated, skipping sequence")
+            self._display.update_status(self.get_system_status())
+            return True
 
         # 서버 강제 순서 확인 (controls.orders)
         forced_orders = None
