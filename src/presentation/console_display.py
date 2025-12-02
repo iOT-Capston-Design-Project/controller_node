@@ -165,16 +165,20 @@ class ConsoleDisplay(IDisplay):
         packet_table.add_column("값")
 
         if self._last_packet:
+            # PostureType enum values: UNKNOWN=0, SITTING=1, LEFT_SIDE=2, RIGHT_SIDE=3,
+            # SUPINE=4, PRONE=5, SUPINE_LEFT=6, SUPINE_RIGHT=7
             posture_names = {
-                "supine": "앙와위",
-                "prone": "복와위",
-                "left_lateral": "좌측와위",
-                "right_lateral": "우측와위",
-                "sitting": "좌위",
-                "unknown": "알 수 없음",
+                0: "알 수 없음",
+                1: "좌위",
+                2: "좌측와위",
+                3: "우측와위",
+                4: "앙와위",
+                5: "복와위",
+                6: "앙와위(좌)",
+                7: "앙와위(우)",
             }
-            posture_name = posture_names.get(self._last_packet.posture.value, self._last_packet.posture.value)
-            packet_table.add_row("자세", Text(posture_name, style="bold magenta"))
+            posture_name = posture_names.get(self._last_packet.posture.value, f"미정의({self._last_packet.posture.value})")
+            packet_table.add_row("자세", Text(str(posture_name), style="bold magenta"))
 
             # 압력 정보
             pressure_str = ", ".join(
