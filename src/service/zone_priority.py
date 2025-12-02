@@ -51,6 +51,9 @@ class ZonePriorityService:
         우선순위 점수 = 압력값 + (지속시간/60) * 10
         점수가 높은 존부터 순서대로 릴리프 실행.
 
+        pressures가 비어있는 경우, durations에서 값이 0보다 큰 부위를
+        압력이 있는 것으로 간주 (압력값 100으로 처리).
+
         Args:
             pressures: 신체 부위별 압력값 {"occiput": 85, "sacrum": 70, ...}
             durations: 신체 부위별 지속시간(초) {"occiput": 300, ...}
@@ -64,6 +67,14 @@ class ZonePriorityService:
         if forced_orders:
             logger.info(f"Using forced zone order from server: {forced_orders}")
             return self._apply_forced_order(forced_orders, pressures, durations)
+
+        # pressures가 비어있으면 durations 기반으로 압력값 생성
+        if not pressures:
+            pressures = {
+                body_part: 100 if duration > 0 else 0
+                for body_part, duration in durations.items()
+            }
+            logger.debug(f"Generated pressures from durations: {pressures}")
 
         zone_scores: Dict[int, Tuple[float, int, int]] = {}
 
