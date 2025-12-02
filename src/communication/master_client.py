@@ -121,7 +121,7 @@ class MasterNodeClient(IMasterNodeClient):
                         logger.info(
                             f"[ControlPacket] 자세={packet.posture.value}, "
                             f"압력={packet.pressures}, 지속시간={packet.durations}, "
-                            f"제어명령={packet.controls}"
+                            f"제어명령={packet.controls}, activate_air={packet.activate_air}"
                         )
 
                         # Call packet handler if set

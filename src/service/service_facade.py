@@ -163,6 +163,12 @@ class ServiceFacade(IServiceFacade):
         # Display received packet
         self._display.show_packet_received(packet)
 
+        # activate_air 상태 로깅
+        logger.info(
+            f"activate_air state: packet={packet.activate_air}, "
+            f"current={self._air_activated}"
+        )
+
         # activate_air 상태 변경 확인 및 처리
         if packet.activate_air != self._air_activated:
             if packet.activate_air:
@@ -185,9 +191,11 @@ class ServiceFacade(IServiceFacade):
 
         # activate_air가 false면 시퀀스 전송하지 않음
         if not packet.activate_air:
-            logger.debug("Air not activated, skipping sequence")
+            logger.info("Air not activated, skipping sequence")
             self._display.update_status(self.get_system_status())
             return True
+
+        logger.info("Air is activated, proceeding with zone sequence...")
 
         # 서버 강제 순서 확인 (controls.orders)
         forced_orders = None
