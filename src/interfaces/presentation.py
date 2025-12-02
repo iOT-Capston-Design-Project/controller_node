@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from ..domain.models import ControlSignal, ControlPacket, DeviceCommand, SystemStatus
+from ..domain.models import ControlSignal, ControlPacket, SystemStatus
 
 
 class IDisplay(ABC):
@@ -47,11 +47,11 @@ class IDisplay(ABC):
         pass
 
     @abstractmethod
-    def show_commands_executed(self, commands: List[DeviceCommand]) -> None:
-        """Display executed device commands.
+    def show_sequence_sent(self, zones: List[int]) -> None:
+        """Display sequence sent to Arduino.
 
         Args:
-            commands: List of executed commands.
+            zones: List of zone numbers in sequence.
         """
         pass
 

@@ -3,7 +3,7 @@
 import logging
 from collections import deque
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from rich.console import Console
 from rich.layout import Layout
@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..interfaces.presentation import IDisplay
-from ..domain.models import ControlSignal, ControlPacket, DeviceCommand, SystemStatus
+from ..domain.models import ControlSignal, ControlPacket, SystemStatus
 from ..domain.enums import ConnectionState
 from ..config.settings import settings
 
@@ -37,7 +37,7 @@ class ConsoleDisplay(IDisplay):
         self._status: Optional[SystemStatus] = None
         self._last_signal: Optional[ControlSignal] = None
         self._last_packet: Optional[ControlPacket] = None
-        self._last_commands: List[DeviceCommand] = []
+        self._current_sequence: Optional[Tuple[List[int], datetime]] = None
         self._log_messages: deque = deque(maxlen=max_log_lines)
         self._error_message: Optional[str] = None
 
@@ -151,12 +151,12 @@ class ConsoleDisplay(IDisplay):
         return Panel(table, title="상태", border_style="blue")
 
     def _generate_main_panel(self) -> Panel:
-        """Generate main panel with signal and command info."""
+        """Generate main panel with packet, signal, and sequence info."""
         layout = Layout()
         layout.split_column(
             Layout(name="packet", ratio=2),
             Layout(name="signal", ratio=1),
-            Layout(name="commands", ratio=2),
+            Layout(name="sequence", ratio=2),
         )
 
         # ControlPacket info
@@ -228,29 +228,21 @@ class ConsoleDisplay(IDisplay):
             Panel(signal_table, title="마지막 신호", border_style="cyan")
         )
 
-        # Commands info
-        cmd_table = Table(show_header=True, box=None, padding=(0, 1))
-        cmd_table.add_column("구역", style="cyan", width=8)
-        cmd_table.add_column("동작", width=10)
-        cmd_table.add_column("시간", width=10)
+        # Sequence info
+        seq_table = Table(show_header=False, box=None, padding=(0, 1))
+        seq_table.add_column("항목", style="cyan")
+        seq_table.add_column("값")
 
-        if self._last_commands:
-            for cmd in self._last_commands[-5:]:  # Show last 5 commands
-                action_style = (
-                    "green" if cmd.action.value == "inflate"
-                    else "yellow" if cmd.action.value == "deflate"
-                    else "dim"
-                )
-                cmd_table.add_row(
-                    str(cmd.zone.value),
-                    Text(cmd.action.value, style=action_style),
-                    cmd.timestamp.strftime("%H:%M:%S"),
-                )
+        if self._current_sequence:
+            zones, sent_time = self._current_sequence
+            seq_str = " → ".join(map(str, zones))
+            seq_table.add_row("시퀀스", Text(seq_str, style="bold green"))
+            seq_table.add_row("전송 시간", sent_time.strftime("%H:%M:%S"))
         else:
-            cmd_table.add_row("", "명령 없음", "")
+            seq_table.add_row("", "시퀀스 대기 중...")
 
-        layout["commands"].update(
-            Panel(cmd_table, title="최근 명령", border_style="green")
+        layout["sequence"].update(
+            Panel(seq_table, title="현재 시퀀스 (Arduino)", border_style="green")
         )
 
         return Panel(layout, title="제어", border_style="blue")
@@ -313,14 +305,15 @@ class ConsoleDisplay(IDisplay):
         )
         self._refresh()
 
-    def show_commands_executed(self, commands: List[DeviceCommand]) -> None:
-        """Display executed device commands.
+    def show_sequence_sent(self, zones: List[int]) -> None:
+        """Display sequence sent to Arduino.
 
         Args:
-            commands: List of executed commands.
+            zones: List of zone numbers in sequence.
         """
-        self._last_commands = commands
-        self._add_log(f"{len(commands)}개 명령 실행됨", "info")
+        self._current_sequence = (zones, datetime.now())
+        seq_str = " → ".join(map(str, zones))
+        self._add_log(f"시퀀스 전송: {seq_str}", "info")
         self._refresh()
 
     def log_message(self, message: str, level: str = "info") -> None:

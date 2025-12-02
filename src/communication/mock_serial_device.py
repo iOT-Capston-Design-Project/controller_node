@@ -251,6 +251,7 @@ class SerialTestDevice(ISerialDevice):
         port: Optional[str] = None,
         baudrate: Optional[int] = None,
         test_interval: float = 30.0,
+        on_sequence_sent: Optional[callable] = None,
     ):
         """Initialize test serial device.
 
@@ -258,6 +259,7 @@ class SerialTestDevice(ISerialDevice):
             port: 시리얼 포트 경로 (기본: settings에서 로드).
             baudrate: 보드레이트 (기본: settings에서 로드).
             test_interval: 시퀀스 변경 주기 (초, 기본: 30초).
+            on_sequence_sent: 시퀀스 전송 시 호출되는 콜백 (zones: List[int]).
         """
         self._port = port or settings.serial_port
         self._baudrate = baudrate or settings.serial_baudrate
@@ -281,6 +283,9 @@ class SerialTestDevice(ISerialDevice):
         self._test_interval = test_interval
         self._test_task: Optional[asyncio.Task] = None
         self._test_sequence_index = 0
+
+        # Callback
+        self._on_sequence_sent = on_sequence_sent
 
     def _reader_loop(self) -> None:
         """Background thread to read Arduino serial output."""
@@ -442,6 +447,10 @@ class SerialTestDevice(ISerialDevice):
             data = self._protocol.encode_sequence(zones)
             logger.debug(f"전송: {data.decode().strip()}")
             self._serial.write(data)
+
+            # TUI 콜백 호출
+            if self._on_sequence_sent:
+                self._on_sequence_sent(zones)
 
             # 응답 대기
             try:

@@ -84,8 +84,23 @@ class Application:
         if self._serial_test_mode:
             # 시리얼 테스트 모드: 실제 아두이노에 테스트 명령 전송
             from .communication.mock_serial_device import SerialTestDevice
-            serial_device = SerialTestDevice(test_interval=self._test_interval)
-            self._container = create_test_container(serial_device=serial_device)
+            from .presentation.console_display import ConsoleDisplay
+
+            # Display 먼저 생성
+            display = ConsoleDisplay()
+
+            # 시퀀스 전송 시 TUI에 표시하는 콜백
+            def on_sequence_sent(zones):
+                display.show_sequence_sent(zones)
+
+            serial_device = SerialTestDevice(
+                test_interval=self._test_interval,
+                on_sequence_sent=on_sequence_sent,
+            )
+            self._container = create_test_container(
+                serial_device=serial_device,
+                display=display,
+            )
             logger.info(f"시리얼 테스트 모드: {self._test_interval}초 간격으로 명령 전송")
         elif self._test_mode:
             # 테스트 모드: 임의 센서 데이터 생성 (시리얼 통신 없음)
