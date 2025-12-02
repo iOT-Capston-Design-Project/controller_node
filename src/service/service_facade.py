@@ -6,7 +6,7 @@ communication and device control.
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from ..interfaces.service import IServiceFacade, IControlService
 from ..interfaces.communication import IMasterNodeClient
@@ -16,7 +16,6 @@ from ..domain.models import ControlSignal, ControlPacket, SystemStatus
 from ..domain.enums import ConnectionState
 from ..config.settings import settings
 from .zone_priority import ZonePriorityService
-from .pattern_executor import PatternExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +54,12 @@ class ServiceFacade(IServiceFacade):
         self._last_packet: Optional[ControlPacket] = None
         self._sensor_send_task = None
 
-        # 압력 기반 순차 실행 서비스
+        # 압력 기반 존 순서 결정 서비스
         self._zone_priority = ZonePriorityService()
-        self._pattern_executor = PatternExecutor(serial_device)
+
+        # 마지막으로 전송한 zone 순서 (중복 체크용)
+        # Arduino에서도 중복 체크하지만, 불필요한 통신 줄이기 위해 여기서도 체크
+        self._last_zone_sequence: Optional[List[int]] = None
 
     async def initialize(self) -> None:
         """Initialize all services and connections."""
@@ -112,9 +114,8 @@ class ServiceFacade(IServiceFacade):
         """Gracefully shutdown all services."""
         logger.info("Shutting down services...")
 
-        # Stop pattern executor
-        if self._pattern_executor.is_running:
-            await self._pattern_executor.stop()
+        # Emergency stop Arduino (stops sequence, clears queue)
+        await self._serial_device.emergency_stop()
 
         # Stop sensor data loop
         if self._sensor_send_task:
@@ -139,7 +140,7 @@ class ServiceFacade(IServiceFacade):
         """Process incoming control packet from master node.
 
         압력값과 지속시간을 기반으로 존 순서를 결정하고
-        시간 기반으로 순차적으로 inflate/deflate 실행.
+        Arduino에 시퀀스 명령을 전송하여 순차적으로 inflate/deflate 실행.
 
         Args:
             packet: Control packet received from master.
@@ -173,12 +174,32 @@ class ServiceFacade(IServiceFacade):
         )
 
         if zone_sequence:
-            logger.info(f"Starting pressure-based pattern: {zone_sequence}")
-            self._display.log_message(
-                f"압력 기반 패턴 시작: {zone_sequence}", level="info"
-            )
-            # 백그라운드에서 순차 실행
-            self._pattern_executor.start_background(zone_sequence)
+            # zone_sequence는 [(zone_num, duration), ...] 형태
+            # Arduino에는 zone 번호만 전송 (duration은 Arduino에서 고정값 사용)
+            zone_numbers = [z[0] for z in zone_sequence]
+
+            # 중복 체크: 같은 순서면 무시 (불필요한 통신 방지)
+            if zone_numbers == self._last_zone_sequence:
+                logger.info(f"Duplicate zone sequence ignored: {zone_numbers}")
+                self._display.log_message(
+                    f"중복 순서 무시: {zone_numbers}", level="debug"
+                )
+            else:
+                logger.info(f"Sending zone sequence to Arduino: {zone_numbers}")
+                self._display.log_message(
+                    f"Arduino 시퀀스 전송: {zone_numbers}", level="info"
+                )
+
+                # Arduino에 시퀀스 전송 (Arduino가 큐잉/중복체크 처리)
+                success = await self._serial_device.send_sequence(zone_numbers)
+
+                if success:
+                    self._last_zone_sequence = zone_numbers
+                    self._last_command_executed = datetime.now()
+                    self._commands_executed += 1
+                else:
+                    self._errors_count += 1
+                    self._display.show_error("Failed to send sequence to Arduino")
         else:
             logger.debug("No zones require relief based on pressure data")
 

@@ -24,9 +24,11 @@ class ArduinoProtocol(IDeviceProtocol):
     """Arduino protocol implementation.
 
     Commands:
-    - S: Start/Run pattern
-    - P: Pause/Stop pattern
+    - P: Pause/Stop pattern, clear queue
     - Z<zone>:<action>: Zone control command (on/off only)
+    - SEQ:<z1>,<z2>,...: Start sequence pattern
+    - QUEUE:<z1>,<z2>,...: Queue next sequence (runs after current completes)
+    - STATUS: Query current zone states
     """
 
     def encode_command(self, command: DeviceCommand) -> bytes:
@@ -71,6 +73,30 @@ class ArduinoProtocol(IDeviceProtocol):
     def encode_pause(self) -> bytes:
         """Encode pause command."""
         return b"P"
+
+    def encode_sequence(self, zones: List[int]) -> bytes:
+        """Encode sequence pattern command.
+
+        Args:
+            zones: List of zone numbers (1-indexed) e.g., [1, 2, 3]
+
+        Returns:
+            Encoded command bytes e.g., b"SEQ:1,2,3\n"
+        """
+        zones_str = ",".join(str(z) for z in zones)
+        return f"SEQ:{zones_str}\n".encode()
+
+    def encode_queue(self, zones: List[int]) -> bytes:
+        """Encode queue sequence command.
+
+        Args:
+            zones: List of zone numbers (1-indexed) e.g., [1, 2, 3]
+
+        Returns:
+            Encoded command bytes e.g., b"QUEUE:1,2,3\n"
+        """
+        zones_str = ",".join(str(z) for z in zones)
+        return f"QUEUE:{zones_str}\n".encode()
 
 
 class SerialDevice(ISerialDevice):
@@ -388,3 +414,64 @@ class SerialDevice(ISerialDevice):
             True if sensor data is available.
         """
         return not self._sensor_data_queue.empty()
+
+    async def send_sequence(self, zones: List[int]) -> bool:
+        """Send sequence pattern command to Arduino.
+
+        Starts a new sequence pattern. If a pattern is already running,
+        it will be queued by Arduino.
+
+        Args:
+            zones: List of zone numbers (1-indexed) e.g., [1, 2, 3]
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.is_connected():
+            logger.error("Cannot send sequence: device not connected")
+            return False
+
+        if not zones:
+            logger.warning("Empty zone sequence, skipping")
+            return False
+
+        try:
+            data = self._protocol.encode_sequence(zones)
+            logger.info(f"Sending sequence: {zones}")
+            self._serial.write(data)
+            self._last_command_success = True
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send sequence: {e}")
+            self._error_message = str(e)
+            self._last_command_success = False
+            return False
+
+    async def queue_sequence(self, zones: List[int]) -> bool:
+        """Queue a sequence pattern to run after current pattern completes.
+
+        Args:
+            zones: List of zone numbers (1-indexed) e.g., [1, 2, 3]
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if not self.is_connected():
+            logger.error("Cannot queue sequence: device not connected")
+            return False
+
+        if not zones:
+            logger.warning("Empty zone sequence, skipping")
+            return False
+
+        try:
+            data = self._protocol.encode_queue(zones)
+            logger.info(f"Queueing sequence: {zones}")
+            self._serial.write(data)
+            self._last_command_success = True
+            return True
+        except Exception as e:
+            logger.error(f"Failed to queue sequence: {e}")
+            self._error_message = str(e)
+            self._last_command_success = False
+            return False

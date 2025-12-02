@@ -1,7 +1,22 @@
 """Pattern executor for time-based sequential zone control.
 
 Executes inflate/deflate sequences on zones with specified durations.
+
+DEPRECATED: This module is no longer used.
+Pattern execution has been moved to Arduino firmware (hydraulic_controller.ino).
+Use SerialDevice.send_sequence() to send zone sequences directly to Arduino.
+
+See: arduino_node/hydraulic_controller.ino for SEQ/QUEUE commands.
 """
+
+import warnings
+
+warnings.warn(
+    "PatternExecutor is deprecated. Use SerialDevice.send_sequence() instead. "
+    "Pattern execution is now handled by Arduino firmware.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 import logging
